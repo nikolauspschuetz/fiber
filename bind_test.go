@@ -3116,3 +3116,52 @@ func BenchmarkBind_All_CustomPrecedence(b *testing.B) {
 		}
 	}
 }
+
+// Test_Bind_Body_DoesNotMutateContentType verifies that inspecting the
+// Content-Type to pick a decoder leaves the request header untouched. The case
+// fold used to happen in place, which lowercased the (case-sensitive)
+// multipart boundary — so anything that replayed the request afterwards, such
+// as a proxy, could no longer parse the body it forwarded.
+func Test_Bind_Body_DoesNotMutateContentType(t *testing.T) {
+	t.Parallel()
+
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	require.NoError(t, w.SetBoundary("AbCdEfMixedCase12345"))
+	require.NoError(t, w.WriteField("name", "john"))
+	require.NoError(t, w.Close())
+	raw := body.Bytes()
+
+	const wantCType = "multipart/form-data; boundary=AbCdEfMixedCase12345"
+
+	app := New()
+	app.Post("/", func(c Ctx) error {
+		var out struct {
+			Name string `form:"name"`
+		}
+		require.NoError(t, c.Bind().Body(&out))
+		require.Equal(t, "john", out.Name)
+
+		require.Equal(t, wantCType, c.Get(HeaderContentType))
+
+		// Replaying the request from its header and body — what forwarding it
+		// upstream amounts to — must still parse.
+		fwd := fasthttp.AcquireRequest()
+		defer fasthttp.ReleaseRequest(fwd)
+		fwd.Header.SetMethod(MethodPost)
+		fwd.SetRequestURI("/")
+		fwd.Header.SetContentType(c.Get(HeaderContentType))
+		fwd.SetBody(raw)
+
+		form, err := fwd.MultipartForm()
+		require.NoError(t, err)
+		require.Equal(t, []string{"john"}, form.Value["name"])
+		return nil
+	})
+
+	req := httptest.NewRequest(MethodPost, "/", bytes.NewReader(raw))
+	req.Header.Set(HeaderContentType, wantCType)
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	require.Equal(t, StatusOK, resp.StatusCode)
+}

@@ -12,7 +12,6 @@ import (
 	"sync"
 
 	"github.com/gofiber/utils/v2"
-	utilsbytes "github.com/gofiber/utils/v2/bytes"
 	"github.com/valyala/bytebufferpool"
 	"github.com/valyala/fasthttp"
 
@@ -192,8 +191,11 @@ func (r *Redirect) With(key, value string, level ...uint8) *Redirect {
 // This method can send form, multipart form, query data to redirected route.
 // You can get them by using: Redirect().OldInputs(), Redirect().OldInput()
 func (r *Redirect) WithInput() *Redirect {
-	// Get content-type
-	ctype := utils.UnsafeString(utilsbytes.UnsafeToLower(r.c.RequestCtx().Request.Header.ContentType()))
+	// Get content-type. Fold into scratch space rather than in place: the
+	// header bytes belong to the request, and a multipart boundary is
+	// case-sensitive (see Bind.Body).
+	var ctypeBuf [128]byte
+	ctype := utils.UnsafeString(appendLowerASCII(ctypeBuf[:0], r.c.RequestCtx().Request.Header.ContentType()))
 	ctype = binder.FilterFlags(utils.ParseVendorSpecificContentType(ctype))
 
 	oldInput := acquireOldInput()

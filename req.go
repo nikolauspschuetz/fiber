@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/gofiber/utils/v2"
-	utilsbytes "github.com/gofiber/utils/v2/bytes"
 	utilsstrings "github.com/gofiber/utils/v2/strings"
 	"github.com/valyala/bytebufferpool"
 	"github.com/valyala/fasthttp"
@@ -166,8 +165,11 @@ func (r *DefaultReq) Body() []byte {
 
 	// Get Content-Encoding header. Multiple field lines form one combined
 	// list (RFC 9110 Section 5.2), so join them before splitting.
+	// The single-line result aliases the header storage, so the case fold goes
+	// into scratch space instead of rewriting the request's own bytes.
 	encodedBytes, _ := peekJoinedRequestHeader(&request.Header, HeaderContentEncoding)
-	headerEncoding = utils.UnsafeString(utilsbytes.UnsafeToLower(encodedBytes))
+	var encodingBuf [64]byte
+	headerEncoding = utils.UnsafeString(appendLowerASCII(encodingBuf[:0], encodedBytes))
 
 	// Split and get the encodings list, in order to attend the
 	// rule defined at: https://www.rfc-editor.org/rfc/rfc9110#section-8.4-5
