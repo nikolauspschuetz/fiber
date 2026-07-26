@@ -1,6 +1,8 @@
 package logtemplate
 
-import "github.com/gofiber/utils/v2/swar"
+import (
+	"github.com/gofiber/utils/v2/swar"
+)
 
 // WriteSanitized writes p to output with ASCII control bytes replaced by
 // spaces. Tabs are preserved. Clean inputs (the common case) forward

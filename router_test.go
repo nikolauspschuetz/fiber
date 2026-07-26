@@ -3721,7 +3721,7 @@ func Test_Route_OptionalSlash_SingleCharSegment(t *testing.T) {
 			app := New()
 			app.Get(tt.pattern, func(c Ctx) error { return c.SendString("ok") })
 
-			resp, err := app.Test(httptest.NewRequest(MethodGet, tt.path, nil))
+			resp, err := app.Test(httptest.NewRequest(MethodGet, tt.path, http.NoBody))
 			require.NoError(t, err)
 			require.Equal(t, StatusOK, resp.StatusCode)
 		})

@@ -808,9 +808,9 @@ func Test_BasicAuth_RejectsWrongDigestLength(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		wantErr error
 		name    string
 		hash    string
-		wantErr error
 	}{
 		{
 			name:    "sha256 too short",

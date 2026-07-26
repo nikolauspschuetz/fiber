@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/cookiejar"
-	"net/url"
+	neturl "net/url"
 	"sort"
 	"testing"
 	"time"
@@ -954,30 +954,71 @@ func Test_CookieJar_MatchesStdlibJar(t *testing.T) {
 		sets []setStep
 		gets []string
 	}{
-		{"host only", []setStep{{"http://example.com/", "a=1"}},
-			[]string{"http://example.com/", "http://sub.example.com/", "http://other.com/"}},
-		{"domain attribute", []setStep{{"http://example.com/", "a=1; Domain=example.com"}},
-			[]string{"http://example.com/", "http://sub.example.com/"}},
-		{"leading dot domain", []setStep{{"http://example.com/", "a=1; Domain=.example.com"}},
-			[]string{"http://example.com/", "http://sub.example.com/"}},
-		{"subdomain sets parent", []setStep{{"http://sub.example.com/", "a=1; Domain=example.com"}},
-			[]string{"http://example.com/", "http://sub.example.com/", "http://x.example.com/"}},
-		{"public suffix rejected", []setStep{{"http://example.com/", "a=1; Domain=com"}},
-			[]string{"http://example.com/", "http://other.com/"}},
-		{"unrelated domain rejected", []setStep{{"http://example.com/", "a=1; Domain=evil.com"}},
-			[]string{"http://example.com/", "http://evil.com/"}},
-		{"explicit paths", []setStep{{"http://example.com/", "a=1; Path=/"}, {"http://example.com/admin", "b=2; Path=/admin"}},
-			[]string{"http://example.com/", "http://example.com/admin", "http://example.com/admin/x", "http://example.com/adminx"}},
-		{"secure", []setStep{{"https://example.com/", "a=1; Secure"}},
-			[]string{"https://example.com/", "http://example.com/"}},
-		{"overwrite", []setStep{{"http://example.com/", "a=1"}, {"http://example.com/", "a=2"}},
-			[]string{"http://example.com/"}},
-		{"ip host", []setStep{{"http://127.0.0.1/", "a=1"}}, []string{"http://127.0.0.1/"}},
-		{"ip domain", []setStep{{"http://127.0.0.1/", "a=1; Domain=127.0.0.1"}}, []string{"http://127.0.0.1/"}},
-		{"default path", []setStep{{"http://example.com/a/b", "a=1"}},
-			[]string{"http://example.com/a/b", "http://example.com/a/", "http://example.com/a", "http://example.com/"}},
-		{"default path at root", []setStep{{"http://example.com/b", "a=1"}},
-			[]string{"http://example.com/b", "http://example.com/"}},
+		{
+			name: "host only",
+			sets: []setStep{{"http://example.com/", "a=1"}},
+			gets: []string{"http://example.com/", "http://sub.example.com/", "http://other.com/"},
+		},
+		{
+			name: "domain attribute",
+			sets: []setStep{{"http://example.com/", "a=1; Domain=example.com"}},
+			gets: []string{"http://example.com/", "http://sub.example.com/"},
+		},
+		{
+			name: "leading dot domain",
+			sets: []setStep{{"http://example.com/", "a=1; Domain=.example.com"}},
+			gets: []string{"http://example.com/", "http://sub.example.com/"},
+		},
+		{
+			name: "subdomain sets parent",
+			sets: []setStep{{"http://sub.example.com/", "a=1; Domain=example.com"}},
+			gets: []string{"http://example.com/", "http://sub.example.com/", "http://x.example.com/"},
+		},
+		{
+			name: "public suffix rejected",
+			sets: []setStep{{"http://example.com/", "a=1; Domain=com"}},
+			gets: []string{"http://example.com/", "http://other.com/"},
+		},
+		{
+			name: "unrelated domain rejected",
+			sets: []setStep{{"http://example.com/", "a=1; Domain=evil.com"}},
+			gets: []string{"http://example.com/", "http://evil.com/"},
+		},
+		{
+			name: "explicit paths",
+			sets: []setStep{{"http://example.com/", "a=1; Path=/"}, {"http://example.com/admin", "b=2; Path=/admin"}},
+			gets: []string{"http://example.com/", "http://example.com/admin", "http://example.com/admin/x", "http://example.com/adminx"},
+		},
+		{
+			name: "secure",
+			sets: []setStep{{"https://example.com/", "a=1; Secure"}},
+			gets: []string{"https://example.com/", "http://example.com/"},
+		},
+		{
+			name: "overwrite",
+			sets: []setStep{{"http://example.com/", "a=1"}, {"http://example.com/", "a=2"}},
+			gets: []string{"http://example.com/"},
+		},
+		{
+			name: "ip host",
+			sets: []setStep{{"http://127.0.0.1/", "a=1"}},
+			gets: []string{"http://127.0.0.1/"},
+		},
+		{
+			name: "ip domain",
+			sets: []setStep{{"http://127.0.0.1/", "a=1; Domain=127.0.0.1"}},
+			gets: []string{"http://127.0.0.1/"},
+		},
+		{
+			name: "default path",
+			sets: []setStep{{"http://example.com/a/b", "a=1"}},
+			gets: []string{"http://example.com/a/b", "http://example.com/a/", "http://example.com/a", "http://example.com/"},
+		},
+		{
+			name: "default path at root",
+			sets: []setStep{{"http://example.com/b", "a=1"}},
+			gets: []string{"http://example.com/b", "http://example.com/"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -990,7 +1031,7 @@ func Test_CookieJar_MatchesStdlibJar(t *testing.T) {
 			defer ReleaseCookieJar(jar)
 
 			for _, s := range tt.sets {
-				u, err := url.Parse(s.url)
+				u, err := neturl.Parse(s.url)
 				require.NoError(t, err)
 
 				header := http.Header{}
@@ -1004,7 +1045,7 @@ func Test_CookieJar_MatchesStdlibJar(t *testing.T) {
 			}
 
 			for _, g := range tt.gets {
-				u, err := url.Parse(g)
+				u, err := neturl.Parse(g)
 				require.NoError(t, err)
 
 				want := make([]string, 0, 2)

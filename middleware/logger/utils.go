@@ -113,7 +113,7 @@ func writeSanitizedString(output Buffer, s string) (int, error) {
 func writeSanitizedColored(output Buffer, color, value, reset string) (int, error) {
 	n, err := output.WriteString(color)
 	if err != nil {
-		return n, err //nolint:wrapcheck // buffer errors are surfaced verbatim
+		return n, err
 	}
 	m, err := writeSanitizedString(output, value)
 	n += m
@@ -121,5 +121,5 @@ func writeSanitizedColored(output Buffer, color, value, reset string) (int, erro
 		return n, err
 	}
 	m, err = output.WriteString(reset)
-	return n + m, err //nolint:wrapcheck // buffer errors are surfaced verbatim
+	return n + m, err
 }
