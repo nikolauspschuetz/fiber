@@ -17,6 +17,10 @@ import (
 
 const maxCookieJarHosts = 1024
 
+// defaultCookiePath is the path assumed for a cookie that carries no Path
+// attribute (RFC 6265 Section 5.1.4).
+var defaultCookiePath = []byte("/")
+
 var cookieJarPool = sync.Pool{
 	New: func() any {
 		return &CookieJar{}
@@ -414,27 +418,42 @@ func (cj *CookieJar) Release() {
 	cj.hostCookies = nil
 }
 
-// searchCookieByKeyAndPath looks up a cookie by its key and path from the provided slice of cookies.
+// searchCookieByKeyAndPath looks up the stored cookie that a newly received
+// cookie replaces. RFC 6265 Section 5.3 step 11 identifies a cookie by the
+// triple (name, domain, path), and the caller has already selected the entry
+// list for the domain — so the path must be *equal*, not merely path-matching.
+// Using pathMatch here would let "a=2; Path=/admin" overwrite an existing
+// "a=1; Path=/" instead of storing both.
 func searchCookieByKeyAndPath(key, path []byte, cookies []storedCookie) *fasthttp.Cookie {
 	for _, sc := range cookies {
 		c := sc.cookie
-		if bytes.Equal(key, c.Key()) {
-			if pathMatch(path, c.Path()) {
-				return c
-			}
+		if bytes.Equal(key, c.Key()) && samePath(path, c.Path()) {
+			return c
 		}
 	}
 	return nil
+}
+
+// samePath compares two cookie paths, treating an empty path as the default
+// "/" the same way pathMatch does.
+func samePath(a, b []byte) bool {
+	if len(a) == 0 {
+		a = defaultCookiePath
+	}
+	if len(b) == 0 {
+		b = defaultCookiePath
+	}
+	return bytes.Equal(a, b)
 }
 
 // pathMatch determines whether the request path matches the cookie path
 // according to RFC 6265 section 5.1.4.
 func pathMatch(reqPath, cookiePath []byte) bool {
 	if len(reqPath) == 0 {
-		reqPath = []byte("/")
+		reqPath = defaultCookiePath
 	}
 	if len(cookiePath) == 0 {
-		cookiePath = []byte("/")
+		cookiePath = defaultCookiePath
 	}
 	if bytes.Equal(reqPath, cookiePath) {
 		return true

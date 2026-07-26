@@ -855,3 +855,54 @@ func Test_CookieJar_DomainMatchBoundary(t *testing.T) {
 		require.Equal(t, tc.want, domainMatch(tc.host, tc.domain), "domainMatch(%q, %q)", tc.host, tc.domain)
 	}
 }
+
+// Test_CookieJar_DistinctPathsCoexist covers RFC 6265 Section 5.3 step 11:
+// a stored cookie is only replaced when name, domain and path all match. A
+// cookie set for a deeper path must not evict the same-named cookie stored
+// for a shallower one.
+func Test_CookieJar_DistinctPathsCoexist(t *testing.T) {
+	t.Parallel()
+
+	jar := AcquireCookieJar()
+	defer ReleaseCookieJar(jar)
+
+	root := fasthttp.AcquireCookie()
+	defer fasthttp.ReleaseCookie(root)
+	root.SetKey("a")
+	root.SetValue("root")
+	root.SetPath("/")
+
+	admin := fasthttp.AcquireCookie()
+	defer fasthttp.ReleaseCookie(admin)
+	admin.SetKey("a")
+	admin.SetValue("admin")
+	admin.SetPath("/admin")
+
+	jar.SetByHost([]byte("example.com"), root)
+	jar.SetByHost([]byte("example.com"), admin)
+
+	collect := func(path string) map[string]string {
+		got := jar.getByHostAndPath([]byte("example.com"), []byte(path), false)
+		out := make(map[string]string, len(got))
+		for _, c := range got {
+			out[string(c.Path())] = string(c.Value())
+			fasthttp.ReleaseCookie(c)
+		}
+		return out
+	}
+
+	require.Equal(t, map[string]string{"/": "root"}, collect("/"))
+	require.Equal(t, map[string]string{"/": "root", "/admin": "admin"}, collect("/admin"))
+	require.Equal(t, map[string]string{"/": "root"}, collect("/other"))
+
+	// Re-setting the same (name, path) replaces in place rather than appending.
+	updated := fasthttp.AcquireCookie()
+	defer fasthttp.ReleaseCookie(updated)
+	updated.SetKey("a")
+	updated.SetValue("root2")
+	updated.SetPath("/")
+	jar.SetByHost([]byte("example.com"), updated)
+
+	require.Equal(t, map[string]string{"/": "root2"}, collect("/"))
+	require.Equal(t, map[string]string{"/": "root2", "/admin": "admin"}, collect("/admin"))
+}
