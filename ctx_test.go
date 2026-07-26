@@ -10483,3 +10483,37 @@ func Benchmark_Ctx_OverrideParam(b *testing.B) {
 		c.OverrideParam("name", "changed")
 	}
 }
+
+// Test_Ctx_Cookie_DoesNotMutateArgument verifies that Cookie treats its
+// argument as read-only, so a caller can reuse the same *Cookie template
+// across requests without the normalization leaking back into it.
+func Test_Ctx_Cookie_DoesNotMutateArgument(t *testing.T) {
+	t.Parallel()
+	app := New()
+	c := app.AcquireCtx(&fasthttp.RequestCtx{})
+
+	tmpl := &Cookie{
+		Name:        "session",
+		Value:       "v",
+		SameSite:    CookieSameSiteNoneMode,
+		SessionOnly: true,
+		MaxAge:      60,
+		Expires:     time.Now().Add(time.Hour),
+		Partitioned: true,
+	}
+	before := *tmpl
+
+	c.Cookie(tmpl)
+
+	require.Equal(t, before, *tmpl, "Cookie must not mutate the caller's struct")
+	require.Empty(t, tmpl.Path)
+	require.False(t, tmpl.Secure)
+	require.Equal(t, 60, tmpl.MaxAge)
+
+	// The emitted cookie still carries the normalized attributes.
+	header := string(c.Response().Header.Peek(HeaderSetCookie))
+	require.Contains(t, header, "path=/")
+	require.Contains(t, header, "secure")
+	require.Contains(t, header, "SameSite=None")
+	require.NotContains(t, header, "max-age=")
+}
