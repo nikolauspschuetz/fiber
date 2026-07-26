@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1740,4 +1741,81 @@ func Benchmark_Logger_Parallel(b *testing.B) {
 		})
 		benchmarkSetupParallel(bb, app, "/")
 	})
+}
+
+// Test_Logger_SanitizesControlBytes ensures user-controlled values cannot
+// inject CR/LF (or other C0/DEL bytes) into a log line and forge log entries.
+// See https://github.com/gofiber/fiber/issues/4341.
+func Test_Logger_SanitizesControlBytes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		format   string
+		build    func() *http.Request
+		expected string
+	}{
+		{
+			name:   "query",
+			format: "${query:q}",
+			build: func() *http.Request {
+				return httptest.NewRequest(fiber.MethodGet, "/?q=a%0d%0a200+GET+/legit", http.NoBody)
+			},
+			expected: "a  200 GET /legit",
+		},
+		{
+			name:   "body",
+			format: "${body}",
+			build: func() *http.Request {
+				req := httptest.NewRequest(fiber.MethodPost, "/", strings.NewReader("a\r\nb\x00c"))
+				req.Header.Set(fiber.HeaderContentType, fiber.MIMETextPlain)
+				return req
+			},
+			expected: "a  b c",
+		},
+		{
+			name:   "tab is preserved",
+			format: "${query:q}",
+			build: func() *http.Request {
+				return httptest.NewRequest(fiber.MethodGet, "/?q=a%09b", http.NoBody)
+			},
+			expected: "a\tb",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			buf := bytebufferpool.Get()
+			defer bytebufferpool.Put(buf)
+
+			app := fiber.New()
+			app.Use(New(Config{Format: tt.format, Stream: buf}))
+			app.Add([]string{fiber.MethodGet, fiber.MethodPost}, "/", func(c fiber.Ctx) error {
+				return c.SendString("ok")
+			})
+
+			_, err := app.Test(tt.build())
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, buf.String())
+		})
+	}
+}
+
+// Test_Logger_SanitizesPath covers the decoded-path case: with UnescapePath
+// enabled c.Path() carries the percent-decoded bytes, so ${path} would
+// otherwise emit raw CRLF.
+func Test_Logger_SanitizesPath(t *testing.T) {
+	t.Parallel()
+
+	buf := bytebufferpool.Get()
+	defer bytebufferpool.Put(buf)
+
+	app := fiber.New(fiber.Config{UnescapePath: true})
+	app.Use(New(Config{Format: "${path}", Stream: buf}))
+
+	_, err := app.Test(httptest.NewRequest(fiber.MethodGet, "/admin%0d%0a200", http.NoBody))
+	require.NoError(t, err)
+	require.Equal(t, "/admin  200", buf.String())
 }

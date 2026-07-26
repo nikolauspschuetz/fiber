@@ -4,6 +4,7 @@ import (
 	"io"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/internal/logtemplate"
 	fiberlog "github.com/gofiber/fiber/v3/log"
 	"github.com/gofiber/utils/v2"
 )
@@ -92,4 +93,33 @@ func LoggerToWriter[T any](logger fiberlog.AllLogger[T], level fiberlog.Level) i
 		level:          level,
 		loggerInstance: logger,
 	}
+}
+
+// writeSanitized writes p to output with ASCII control bytes replaced by
+// spaces (tabs are preserved), so user-controlled values such as a request
+// body or a decoded query parameter cannot inject CR/LF and forge log lines.
+func writeSanitized(output Buffer, p []byte) (int, error) {
+	return logtemplate.WriteSanitized(output, p)
+}
+
+// writeSanitizedString is writeSanitized for strings.
+func writeSanitizedString(output Buffer, s string) (int, error) {
+	return logtemplate.WriteSanitizedString(output, s)
+}
+
+// writeSanitizedColored writes value between the two color escapes, scrubbing
+// only value. The color sequences are library-controlled and must reach the
+// output verbatim.
+func writeSanitizedColored(output Buffer, color, value, reset string) (int, error) {
+	n, err := output.WriteString(color)
+	if err != nil {
+		return n, err //nolint:wrapcheck // buffer errors are surfaced verbatim
+	}
+	m, err := writeSanitizedString(output, value)
+	n += m
+	if err != nil {
+		return n, err
+	}
+	m, err = output.WriteString(reset)
+	return n + m, err //nolint:wrapcheck // buffer errors are surfaced verbatim
 }

@@ -91,7 +91,7 @@ func createTagMap(cfg *Config) map[string]LogFunc {
 	// Set default tags
 	tagFunctions := map[string]LogFunc{
 		TagReferer: func(output Buffer, c fiber.Ctx, _ *Data, _ string) (int, error) {
-			return output.WriteString(c.Get(fiber.HeaderReferer))
+			return writeSanitizedString(output, c.Get(fiber.HeaderReferer))
 		},
 		TagProtocol: func(output Buffer, c fiber.Ctx, _ *Data, _ string) (int, error) {
 			return output.WriteString(c.Protocol())
@@ -103,25 +103,25 @@ func createTagMap(cfg *Config) map[string]LogFunc {
 			return output.WriteString(c.Port())
 		},
 		TagIP: func(output Buffer, c fiber.Ctx, _ *Data, _ string) (int, error) {
-			return output.WriteString(c.IP())
+			return writeSanitizedString(output, c.IP())
 		},
 		TagIPs: func(output Buffer, c fiber.Ctx, _ *Data, _ string) (int, error) {
-			return output.WriteString(c.Get(fiber.HeaderXForwardedFor))
+			return writeSanitizedString(output, c.Get(fiber.HeaderXForwardedFor))
 		},
 		TagHost: func(output Buffer, c fiber.Ctx, _ *Data, _ string) (int, error) {
-			return output.WriteString(c.Hostname())
+			return writeSanitizedString(output, c.Hostname())
 		},
 		TagPath: func(output Buffer, c fiber.Ctx, _ *Data, _ string) (int, error) {
-			return output.WriteString(c.Path())
+			return writeSanitizedString(output, c.Path())
 		},
 		TagURL: func(output Buffer, c fiber.Ctx, _ *Data, _ string) (int, error) {
-			return output.WriteString(c.OriginalURL())
+			return writeSanitizedString(output, c.OriginalURL())
 		},
 		TagUA: func(output Buffer, c fiber.Ctx, _ *Data, _ string) (int, error) {
-			return output.WriteString(c.Get(fiber.HeaderUserAgent))
+			return writeSanitizedString(output, c.Get(fiber.HeaderUserAgent))
 		},
 		TagBody: func(output Buffer, c fiber.Ctx, _ *Data, _ string) (int, error) {
-			return output.Write(c.Body())
+			return writeSanitized(output, c.Body())
 		},
 		TagBytesReceived: func(output Buffer, c fiber.Ctx, _ *Data, _ string) (int, error) {
 			return appendInt(output, c.Request().Header.ContentLength())
@@ -133,7 +133,7 @@ func createTagMap(cfg *Config) map[string]LogFunc {
 			return output.WriteString(c.Route().Path)
 		},
 		TagResBody: func(output Buffer, c fiber.Ctx, _ *Data, _ string) (int, error) {
-			return output.Write(c.Response().Body())
+			return writeSanitized(output, c.Response().Body())
 		},
 		TagReqHeaders: func(output Buffer, c fiber.Ctx, _ *Data, _ string) (int, error) {
 			out := make(map[string][]string)
@@ -145,10 +145,10 @@ func createTagMap(cfg *Config) map[string]LogFunc {
 			for k, v := range out {
 				reqHeaders = append(reqHeaders, k+"="+strings.Join(v, ","))
 			}
-			return output.WriteString(strings.Join(reqHeaders, "&"))
+			return writeSanitizedString(output, strings.Join(reqHeaders, "&"))
 		},
 		TagQueryStringParams: func(output Buffer, c fiber.Ctx, _ *Data, _ string) (int, error) {
-			return output.WriteString(c.Request().URI().QueryArgs().String())
+			return writeSanitizedString(output, c.Request().URI().QueryArgs().String())
 		},
 
 		TagBlack: func(output Buffer, c fiber.Ctx, _ *Data, _ string) (int, error) {
@@ -182,37 +182,39 @@ func createTagMap(cfg *Config) map[string]LogFunc {
 			if data.ChainErr != nil {
 				if cfg.areColorsEnabled {
 					colors := c.App().Config().ColorScheme
-					return fmt.Fprintf(output, "%s%s%s", colors.Red, data.ChainErr.Error(), colors.Reset)
+					return writeSanitizedColored(output, colors.Red, data.ChainErr.Error(), colors.Reset)
 				}
-				return output.WriteString(data.ChainErr.Error())
+				return writeSanitizedString(output, data.ChainErr.Error())
 			}
 			return output.WriteString("-")
 		},
 		TagReqHeader: func(output Buffer, c fiber.Ctx, _ *Data, extraParam string) (int, error) {
-			return output.WriteString(c.Get(extraParam))
+			return writeSanitizedString(output, c.Get(extraParam))
 		},
 		TagRespHeader: func(output Buffer, c fiber.Ctx, _ *Data, extraParam string) (int, error) {
-			return output.WriteString(c.GetRespHeader(extraParam))
+			return writeSanitizedString(output, c.GetRespHeader(extraParam))
 		},
 		TagQuery: func(output Buffer, c fiber.Ctx, _ *Data, extraParam string) (int, error) {
-			return output.WriteString(fiber.Query[string](c, extraParam))
+			return writeSanitizedString(output, fiber.Query[string](c, extraParam))
 		},
 		TagForm: func(output Buffer, c fiber.Ctx, _ *Data, extraParam string) (int, error) {
-			return output.WriteString(c.FormValue(extraParam))
+			return writeSanitizedString(output, c.FormValue(extraParam))
 		},
 		TagCookie: func(output Buffer, c fiber.Ctx, _ *Data, extraParam string) (int, error) {
-			return output.WriteString(c.Cookies(extraParam))
+			return writeSanitizedString(output, c.Cookies(extraParam))
 		},
 		TagLocals: func(output Buffer, c fiber.Ctx, _ *Data, extraParam string) (int, error) {
 			switch v := c.Locals(extraParam).(type) {
 			case []byte:
-				return output.Write(v)
+				return writeSanitized(output, v)
 			case string:
-				return output.WriteString(v)
+				return writeSanitizedString(output, v)
 			case nil:
 				return 0, nil
 			default:
-				return fmt.Fprintf(output, "%v", v)
+				// %v can render arbitrary text (e.g. a struct holding request
+				// data), so it goes through the same scrubbing.
+				return writeSanitizedString(output, fmt.Sprintf("%v", v))
 			}
 		},
 		TagStatus: func(output Buffer, c fiber.Ctx, _ *Data, _ string) (int, error) {
