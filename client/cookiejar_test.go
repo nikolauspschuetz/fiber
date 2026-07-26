@@ -906,3 +906,29 @@ func Test_CookieJar_DistinctPathsCoexist(t *testing.T) {
 	require.Equal(t, map[string]string{"/": "root2"}, collect("/"))
 	require.Equal(t, map[string]string{"/": "root2", "/admin": "admin"}, collect("/admin"))
 }
+
+// Test_CookieJar_SetByHost_DoesNotMutateArgument checks the jar's documented
+// contract that it only stores copies: normalizing the Domain attribute used
+// to case-fold the caller's cookie in place.
+func Test_CookieJar_SetByHost_DoesNotMutateArgument(t *testing.T) {
+	t.Parallel()
+
+	jar := AcquireCookieJar()
+	defer ReleaseCookieJar(jar)
+
+	c := fasthttp.AcquireCookie()
+	defer fasthttp.ReleaseCookie(c)
+	c.SetKey("a")
+	c.SetValue("1")
+	c.SetDomain("Example.COM")
+
+	jar.SetByHost([]byte("sub.example.com"), c)
+
+	require.Equal(t, "Example.COM", string(c.Domain()))
+
+	// The stored copy is still normalized, so lookups keep working.
+	got := jar.getByHostAndPath([]byte("sub.example.com"), []byte("/"), false)
+	require.Len(t, got, 1)
+	require.Equal(t, "1", string(got[0].Value()))
+	fasthttp.ReleaseCookie(got[0])
+}

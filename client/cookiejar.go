@@ -211,13 +211,15 @@ func (cj *CookieJar) SetByHost(host []byte, cookies ...*fasthttp.Cookie) {
 	}
 
 	for _, cookie := range cookies {
-		domain := utils.TrimLeft(cookie.Domain(), '.')
-		utilsbytes.UnsafeToLower(domain)
+		// Lowercase into a fresh string rather than folding cookie.Domain() in
+		// place: the cookie belongs to the caller, and the jar documents that
+		// it only stores copies.
+		domain := utilsstrings.ToLower(utils.UnsafeString(utils.TrimLeft(cookie.Domain(), '.')))
 		key := hostKey
 		storedDomain := hostStr
-		isHostOnly := len(domain) == 0
+		isHostOnly := domain == ""
 		if !isHostOnly {
-			acceptance := acceptCookieDomain(hostStr, utils.UnsafeString(domain))
+			acceptance := acceptCookieDomain(hostStr, domain)
 			if !acceptance.isOk {
 				continue
 			}
