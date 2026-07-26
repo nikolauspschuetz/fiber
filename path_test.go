@@ -924,3 +924,52 @@ func Test_RoutePatternMatch_InvalidRegexHandlerPanics(t *testing.T) {
 		RoutePatternMatch("/api/123", "/api/:id<regex(\\d+)>", Config{RegexHandler: "invalid"})
 	})
 }
+
+// Test_RoutePatternMatch_MatchesRouter is a differential test: RoutePatternMatch
+// documents itself as "see logic in (*Route).match and (*App).register", so for
+// every pattern/path/config combination it must agree with what the router
+// actually does. It caught RoutePatternMatch trimming trailing slashes from the
+// pattern but not from the path.
+func Test_RoutePatternMatch_MatchesRouter(t *testing.T) {
+	t.Parallel()
+
+	patterns := []string{
+		"/", "/a", "/a/b", "/:id", "/a/:id", "/a/:id?", "/a/*", "/*", "/+",
+		"/a/+", "/:a/:b", "/a-:b", "/a.:b", "/:a?/b", "/api/v1/:id/x",
+		"/a/*/b", "/:id<int>", "/:id<minLen(3)>", "/a/:b?/c", "/ab/*",
+	}
+	paths := []string{
+		"/", "/a", "/a/", "/a/b", "/a/b/", "/1", "/a/1", "/a/b/c",
+		"/a-b", "/a.b", "/b", "/api/v1/9/x", "/a/x/b", "/abc", "/ab",
+		"/a/b/c/d", "//", "/a//b", "/ab/", "/A", "/A/",
+	}
+	configs := []Config{
+		{},
+		{StrictRouting: true},
+		{CaseSensitive: true},
+		{StrictRouting: true, CaseSensitive: true},
+	}
+
+	for _, cfg := range configs {
+		name := fmt.Sprintf("strict=%v/casesensitive=%v", cfg.StrictRouting, cfg.CaseSensitive)
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			for _, pattern := range patterns {
+				for _, path := range paths {
+					app := New(cfg)
+					matched := false
+					app.Get(pattern, func(_ Ctx) error {
+						matched = true
+						return nil
+					})
+
+					_, err := app.Test(httptest.NewRequest(MethodGet, path, nil))
+					require.NoError(t, err)
+
+					require.Equal(t, matched, RoutePatternMatch(path, pattern, cfg),
+						"pattern=%q path=%q", pattern, path)
+				}
+			}
+		})
+	}
+}

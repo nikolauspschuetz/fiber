@@ -207,8 +207,15 @@ func RoutePatternMatch(path, pattern string, cfg ...Config) bool {
 		path = utilsstrings.ToLower(path)
 	}
 	// Strict routing, remove trailing slashes
+	detectionPath := path
 	if !config.StrictRouting && len(patternPretty) > 1 {
 		patternPretty = utils.TrimRight(patternPretty, '/')
+	}
+	// The router matches against a detection path whose trailing slashes have
+	// been stripped as well (see DefaultCtx.configDependentPaths), so trimming
+	// only the pattern would report "/a" as not matching a request for "/a/".
+	if !config.StrictRouting && len(detectionPath) > 1 {
+		detectionPath = utils.TrimRight(detectionPath, '/')
 	}
 
 	parser, _ := routerParserPool.Get().(*routeParser) //nolint:errcheck // only contains routeParser
@@ -218,20 +225,20 @@ func RoutePatternMatch(path, pattern string, cfg ...Config) bool {
 	defer routerParserPool.Put(parser)
 
 	// '*' wildcard matches any path
-	if (patternStr == "/" && path == "/") || patternStr == "/*" {
+	if (patternStr == "/" && detectionPath == "/") || patternStr == "/*" {
 		return true
 	}
 
 	// Does this route have parameters
 	if len(parser.params) > 0 {
-		if match := parser.getMatch(path, path, &ctxParams, false); match {
+		if match := parser.getMatch(detectionPath, path, &ctxParams, false); match {
 			return true
 		}
 	}
 	// Check for a simple match
 	patternPretty = RemoveEscapeCharBytes(patternPretty)
 
-	return string(patternPretty) == path
+	return string(patternPretty) == detectionPath
 }
 
 func (parser *routeParser) reset() {
