@@ -3,11 +3,16 @@ package client
 import (
 	"bytes"
 	"fmt"
+	"net/http"
+	"net/http/cookiejar"
+	"net/url"
+	"sort"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/valyala/fasthttp"
+	"golang.org/x/net/publicsuffix"
 )
 
 func checkKeyValue(t *testing.T, cj *CookieJar, cookie *fasthttp.Cookie, uri *fasthttp.URI, n int) {
@@ -931,4 +936,95 @@ func Test_CookieJar_SetByHost_DoesNotMutateArgument(t *testing.T) {
 	require.Len(t, got, 1)
 	require.Equal(t, "1", string(got[0].Value()))
 	fasthttp.ReleaseCookie(got[0])
+}
+
+// Test_CookieJar_MatchesStdlibJar cross-checks storage and retrieval against
+// net/http/cookiejar, which implements RFC 6265 with the same public-suffix
+// list. It caught path-less cookies being stored at "/" instead of the
+// request's default-path.
+func Test_CookieJar_MatchesStdlibJar(t *testing.T) {
+	t.Parallel()
+
+	type setStep struct {
+		url    string
+		cookie string
+	}
+	tests := []struct {
+		name string
+		sets []setStep
+		gets []string
+	}{
+		{"host only", []setStep{{"http://example.com/", "a=1"}},
+			[]string{"http://example.com/", "http://sub.example.com/", "http://other.com/"}},
+		{"domain attribute", []setStep{{"http://example.com/", "a=1; Domain=example.com"}},
+			[]string{"http://example.com/", "http://sub.example.com/"}},
+		{"leading dot domain", []setStep{{"http://example.com/", "a=1; Domain=.example.com"}},
+			[]string{"http://example.com/", "http://sub.example.com/"}},
+		{"subdomain sets parent", []setStep{{"http://sub.example.com/", "a=1; Domain=example.com"}},
+			[]string{"http://example.com/", "http://sub.example.com/", "http://x.example.com/"}},
+		{"public suffix rejected", []setStep{{"http://example.com/", "a=1; Domain=com"}},
+			[]string{"http://example.com/", "http://other.com/"}},
+		{"unrelated domain rejected", []setStep{{"http://example.com/", "a=1; Domain=evil.com"}},
+			[]string{"http://example.com/", "http://evil.com/"}},
+		{"explicit paths", []setStep{{"http://example.com/", "a=1; Path=/"}, {"http://example.com/admin", "b=2; Path=/admin"}},
+			[]string{"http://example.com/", "http://example.com/admin", "http://example.com/admin/x", "http://example.com/adminx"}},
+		{"secure", []setStep{{"https://example.com/", "a=1; Secure"}},
+			[]string{"https://example.com/", "http://example.com/"}},
+		{"overwrite", []setStep{{"http://example.com/", "a=1"}, {"http://example.com/", "a=2"}},
+			[]string{"http://example.com/"}},
+		{"ip host", []setStep{{"http://127.0.0.1/", "a=1"}}, []string{"http://127.0.0.1/"}},
+		{"ip domain", []setStep{{"http://127.0.0.1/", "a=1; Domain=127.0.0.1"}}, []string{"http://127.0.0.1/"}},
+		{"default path", []setStep{{"http://example.com/a/b", "a=1"}},
+			[]string{"http://example.com/a/b", "http://example.com/a/", "http://example.com/a", "http://example.com/"}},
+		{"default path at root", []setStep{{"http://example.com/b", "a=1"}},
+			[]string{"http://example.com/b", "http://example.com/"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			std, err := cookiejar.New(&cookiejar.Options{PublicSuffixList: publicsuffix.List})
+			require.NoError(t, err)
+			jar := AcquireCookieJar()
+			defer ReleaseCookieJar(jar)
+
+			for _, s := range tt.sets {
+				u, err := url.Parse(s.url)
+				require.NoError(t, err)
+
+				header := http.Header{}
+				header.Add("Set-Cookie", s.cookie)
+				std.SetCookies(u, (&http.Response{Header: header}).Cookies())
+
+				resp := fasthttp.AcquireResponse()
+				resp.Header.Add("Set-Cookie", s.cookie)
+				jar.parseCookiesFromResp([]byte(u.Host), []byte(u.Path), resp)
+				fasthttp.ReleaseResponse(resp)
+			}
+
+			for _, g := range tt.gets {
+				u, err := url.Parse(g)
+				require.NoError(t, err)
+
+				want := make([]string, 0, 2)
+				for _, c := range std.Cookies(u) {
+					want = append(want, c.Name+"="+c.Value)
+				}
+				sort.Strings(want)
+
+				fURI := fasthttp.AcquireURI()
+				require.NoError(t, fURI.Parse(nil, []byte(g)))
+				got := make([]string, 0, 2)
+				for _, c := range jar.Get(fURI) {
+					got = append(got, string(c.Key())+"="+string(c.Value()))
+					fasthttp.ReleaseCookie(c)
+				}
+				fasthttp.ReleaseURI(fURI)
+				sort.Strings(got)
+
+				require.Equal(t, want, got, "request %s", g)
+			}
+		})
+	}
 }

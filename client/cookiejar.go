@@ -286,8 +286,23 @@ func (cj *CookieJar) dumpCookiesToReq(req *fasthttp.Request) {
 	}
 }
 
+// defaultCookiePathFor implements the RFC 6265 Section 5.1.4 default-path
+// algorithm. A cookie that arrives without a Path attribute is scoped to the
+// directory of the request that set it, not to the whole host: a Set-Cookie on
+// "/a/b" defaults to "/a", so the cookie is not returned for "/".
+func defaultCookiePathFor(requestPath []byte) []byte {
+	if len(requestPath) == 0 || requestPath[0] != '/' {
+		return defaultCookiePath
+	}
+	i := bytes.LastIndexByte(requestPath, '/')
+	if i <= 0 {
+		return defaultCookiePath
+	}
+	return requestPath[:i]
+}
+
 // parseCookiesFromResp parses the cookies from the response and stores them for the specified host and path.
-func (cj *CookieJar) parseCookiesFromResp(host, _ []byte, resp *fasthttp.Response) {
+func (cj *CookieJar) parseCookiesFromResp(host, path []byte, resp *fasthttp.Response) {
 	hostStr := utils.UnsafeString(host)
 	if h, _, err := net.SplitHostPort(hostStr); err == nil {
 		hostStr = h
@@ -303,9 +318,16 @@ func (cj *CookieJar) parseCookiesFromResp(host, _ []byte, resp *fasthttp.Respons
 	}
 
 	now := time.Now()
+	defaultPath := defaultCookiePathFor(path)
 	for _, value := range resp.Header.Cookies() {
 		tmp := fasthttp.AcquireCookie()
 		_ = tmp.ParseBytes(value) //nolint:errcheck // ignore error
+
+		// A Set-Cookie without a Path attribute is scoped to the request's
+		// directory, not to the whole host (RFC 6265 Section 5.1.4).
+		if len(tmp.Path()) == 0 {
+			tmp.SetPathBytes(defaultPath)
+		}
 
 		domainBytes := utils.TrimLeft(tmp.Domain(), '.')
 		utilsbytes.UnsafeToLower(domainBytes)
