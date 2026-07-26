@@ -3691,3 +3691,39 @@ func Benchmark_Router_HandlerCustom_NotFound(b *testing.B) {
 		appHandler(c)
 	}
 }
+
+// Test_Route_OptionalSlash_SingleCharSegment guards the tree-bucket key against
+// the optional trailing slash. A leading constant of exactly maxDetectionPaths
+// bytes ("/a/") can match a detection path one byte shorter ("/a"), and that
+// shorter path always hashes to bucket 0 — so bucketing the route under the
+// hash of the full constant made it unreachable, while the otherwise identical
+// "/ab/..." routes matched.
+func Test_Route_OptionalSlash_SingleCharSegment(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		pattern string
+		path    string
+	}{
+		{"/a/:id?", "/a"},
+		{"/a/:id?", "/a/"},
+		{"/a/:id?", "/a/1"},
+		{"/a/*", "/a"},
+		{"/a/*", "/a/"},
+		{"/a/*", "/a/b"},
+		{"/ab/:id?", "/ab"},
+		{"/ab/*", "/ab"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.pattern+" "+tt.path, func(t *testing.T) {
+			t.Parallel()
+			app := New()
+			app.Get(tt.pattern, func(c Ctx) error { return c.SendString("ok") })
+
+			resp, err := app.Test(httptest.NewRequest(MethodGet, tt.path, nil))
+			require.NoError(t, err)
+			require.Equal(t, StatusOK, resp.StatusCode)
+		})
+	}
+}
