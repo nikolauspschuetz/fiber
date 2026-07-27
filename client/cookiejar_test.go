@@ -1069,3 +1069,94 @@ func Test_CookieJar_MatchesStdlibJar(t *testing.T) {
 		})
 	}
 }
+
+// Test_CookieJar_SendsMostSpecificCookie pins RFC 6265 Section 5.4 ordering.
+// Once same-named cookies at different paths can coexist, map iteration order
+// decided which one went on the wire — nondeterministically, and usually the
+// least specific.
+func Test_CookieJar_SendsMostSpecificCookie(t *testing.T) {
+	t.Parallel()
+
+	for range 20 {
+		jar := AcquireCookieJar()
+
+		adminResp := fasthttp.AcquireResponse()
+		adminResp.Header.Add("Set-Cookie", "sess=ADMINVAL")
+		jar.parseCookiesFromResp([]byte("example.com"), []byte("/admin/login"), adminResp)
+		fasthttp.ReleaseResponse(adminResp)
+
+		rootResp := fasthttp.AcquireResponse()
+		rootResp.Header.Add("Set-Cookie", "sess=ROOTVAL; Path=/")
+		jar.parseCookiesFromResp([]byte("example.com"), []byte("/"), rootResp)
+		fasthttp.ReleaseResponse(rootResp)
+
+		req := fasthttp.AcquireRequest()
+		req.SetRequestURI("http://example.com/admin/dashboard")
+		jar.dumpCookiesToReq(req)
+		require.Equal(t, "sess=ADMINVAL", string(req.Header.Peek("Cookie")))
+		fasthttp.ReleaseRequest(req)
+
+		// Outside /admin only the root cookie applies.
+		rootReq := fasthttp.AcquireRequest()
+		rootReq.SetRequestURI("http://example.com/other")
+		jar.dumpCookiesToReq(rootReq)
+		require.Equal(t, "sess=ROOTVAL", string(rootReq.Header.Peek("Cookie")))
+		fasthttp.ReleaseRequest(rootReq)
+
+		ReleaseCookieJar(jar)
+	}
+}
+
+// Test_CookieJar_DefaultPathSurvivesEncoding guards the default-path against
+// fasthttp's Cookie.SetPathBytes, which percent-decodes the value it is given.
+// The path already came out of URI.Path() decoded once, so a naive set decoded
+// it twice and stored a scope the setting URL itself could never match.
+func Test_CookieJar_DefaultPathSurvivesEncoding(t *testing.T) {
+	t.Parallel()
+
+	for _, rawURL := range []string{
+		"http://example.com/a%2541b/c",
+		"http://example.com/plain/c",
+		"http://example.com/matrix;v=1/c",
+	} {
+		t.Run(rawURL, func(t *testing.T) {
+			t.Parallel()
+
+			jar := AcquireCookieJar()
+			defer ReleaseCookieJar(jar)
+
+			uri := fasthttp.AcquireURI()
+			defer fasthttp.ReleaseURI(uri)
+			require.NoError(t, uri.Parse(nil, []byte(rawURL)))
+
+			resp := fasthttp.AcquireResponse()
+			defer fasthttp.ReleaseResponse(resp)
+			resp.Header.Add("Set-Cookie", "k=v")
+			jar.parseCookiesFromResp(uri.Host(), uri.Path(), resp)
+
+			got := jar.Get(uri)
+			require.Len(t, got, 1, "cookie must still be sent to the URL that set it")
+			require.Equal(t, "v", string(got[0].Value()))
+			fasthttp.ReleaseCookie(got[0])
+		})
+	}
+}
+
+// Test_CookieJar_BoundsCookiesPerHost checks the per-host ceiling. Scoping
+// path-less cookies to their default-path lets one origin mint an entry per
+// directory it serves, so the host cap alone no longer bounds the jar.
+func Test_CookieJar_BoundsCookiesPerHost(t *testing.T) {
+	t.Parallel()
+
+	jar := AcquireCookieJar()
+	defer ReleaseCookieJar(jar)
+
+	for i := range 500 {
+		resp := fasthttp.AcquireResponse()
+		resp.Header.Add("Set-Cookie", "a=1")
+		jar.parseCookiesFromResp([]byte("example.com"), fmt.Appendf(nil, "/u/%d/x", i), resp)
+		fasthttp.ReleaseResponse(resp)
+	}
+
+	require.LessOrEqual(t, len(jar.hostCookies["example.com"]), maxCookiesPerHost)
+}
