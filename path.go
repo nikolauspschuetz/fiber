@@ -17,6 +17,7 @@ import (
 	"github.com/gofiber/utils/v2"
 	utilsbytes "github.com/gofiber/utils/v2/bytes"
 	utilsstrings "github.com/gofiber/utils/v2/strings"
+	"github.com/valyala/fasthttp"
 )
 
 // routeParser holds the path segments and param names
@@ -201,19 +202,25 @@ func RoutePatternMatch(path, pattern string, cfg ...Config) bool {
 
 	patternPretty := []byte(pattern)
 
-	// Case-sensitive routing, all to lowercase
+	// Mirror DefaultCtx.configDependentPaths: the router derives a separate
+	// detection path (percent-decoded when UnescapePath is set, lowercased when
+	// CaseSensitive is off, trailing slashes stripped when StrictRouting is
+	// off) and keeps c.path untouched. getMatch takes both — the detection path
+	// to match against and the untouched path to slice parameter values out of
+	// — so constraints see the same bytes here as they do in the router.
+	if config.UnescapePath {
+		path = utils.UnsafeString(fasthttp.AppendUnquotedArg(nil, utils.UnsafeBytes(path)))
+	}
+
+	detectionPath := path
 	if !config.CaseSensitive {
 		patternPretty = utilsbytes.UnsafeToLower(patternPretty)
-		path = utilsstrings.ToLower(path)
+		detectionPath = utilsstrings.ToLower(detectionPath)
 	}
 	// Strict routing, remove trailing slashes
-	detectionPath := path
 	if !config.StrictRouting && len(patternPretty) > 1 {
 		patternPretty = utils.TrimRight(patternPretty, '/')
 	}
-	// The router matches against a detection path whose trailing slashes have
-	// been stripped as well (see DefaultCtx.configDependentPaths), so trimming
-	// only the pattern would report "/a" as not matching a request for "/a/".
 	if !config.StrictRouting && len(detectionPath) > 1 {
 		detectionPath = utils.TrimRight(detectionPath, '/')
 	}
