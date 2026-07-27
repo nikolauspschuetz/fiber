@@ -3232,3 +3232,57 @@ func testBindBodyPreservesBoundary(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, StatusOK, resp.StatusCode)
 }
+
+// Test_Bind_Form_ContentTypeNormalization covers the Form entry point
+// directly. Bind().Body() normalizes the Content-Type before dispatching, but
+// Bind().Form() reaches the binder without going through it — so a legal
+// mixed-case media type bound nothing here and reported no error.
+func Test_Bind_Form_ContentTypeNormalization(t *testing.T) {
+	t.Parallel()
+
+	t.Run("multipart", func(t *testing.T) {
+		t.Parallel()
+
+		var body bytes.Buffer
+		w := multipart.NewWriter(&body)
+		require.NoError(t, w.SetBoundary("AbCdEfMixed12345"))
+		require.NoError(t, w.WriteField("name", "john"))
+		require.NoError(t, w.Close())
+
+		app := New()
+		app.Post("/", func(c Ctx) error {
+			var out struct {
+				Name string `form:"name"`
+			}
+			require.NoError(t, c.Bind().Form(&out))
+			require.Equal(t, "john", out.Name)
+			return nil
+		})
+
+		req := httptest.NewRequest(MethodPost, "/", bytes.NewReader(body.Bytes()))
+		req.Header.Set(HeaderContentType, "Multipart/Form-Data; BOUNDARY=AbCdEfMixed12345")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		require.Equal(t, StatusOK, resp.StatusCode)
+	})
+
+	t.Run("urlencoded", func(t *testing.T) {
+		t.Parallel()
+
+		app := New()
+		app.Post("/", func(c Ctx) error {
+			var out struct {
+				Name string `form:"name"`
+			}
+			require.NoError(t, c.Bind().Form(&out))
+			require.Equal(t, "john", out.Name)
+			return nil
+		})
+
+		req := httptest.NewRequest(MethodPost, "/", strings.NewReader("name=john"))
+		req.Header.Set(HeaderContentType, "APPLICATION/X-WWW-FORM-URLENCODED")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		require.Equal(t, StatusOK, resp.StatusCode)
+	})
+}

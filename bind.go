@@ -346,6 +346,12 @@ func (b *Bind) XML(out any) error {
 // If Content-Type is "application/x-www-form-urlencoded" or "multipart/form-data", it will bind the form values.
 // Multipart file fields are supported using *multipart.FileHeader, []*multipart.FileHeader, or *[]*multipart.FileHeader.
 func (b *Bind) Form(out any) error {
+	// Normalize the Content-Type here too, not just in Body: fasthttp locates
+	// the multipart boundary and the urlencoded body with case-sensitive
+	// comparisons, so a legal "Multipart/Form-Data" reaching this entry point
+	// directly would otherwise bind nothing and report no error.
+	normalizeContentTypeMediaType(&b.ctx.RequestCtx().Request.Header)
+
 	bind := binder.GetFromThePool[*binder.FormBinding](&binder.FormBinderPool)
 	bind.EnableSplitting = b.ctx.App().config.EnableSplittingOnParsers
 	bind.MaxBodySize = b.ctx.App().config.BodyLimit
