@@ -307,14 +307,16 @@ lines and corrupt an audit trail.
 
 Scrubbing covers the default format as well as these tags:
 
-`${path}` `${url}` `${ua}` `${referer}` `${ip}` `${ips}` `${host}` `${body}`
-`${resBody}` `${reqHeaders}` `${queryParams}` `${error}` `${reqHeader:}`
-`${respHeader:}` `${query:}` `${form:}` `${cookie:}` `${locals:}`
+`${path}` `${url}` `${ua}` `${referer}` `${ip}` `${ips}` `${host}` `${scheme}`
+`${route}` `${body}` `${resBody}` `${reqHeaders}` `${queryParams}` `${error}`
+`${reqHeader:}` `${respHeader:}` `${query:}` `${form:}` `${cookie:}`
+`${locals:}`
 
 Tags whose values the framework controls — `${status}`, `${method}`,
-`${protocol}`, `${scheme}`, `${port}`, `${latency}`, `${pid}`, `${time}`,
-`${route}`, `${bytesSent}`, `${bytesReceived}` and the color tags — are written
-unchanged.
+`${protocol}`, `${port}`, `${latency}`, `${pid}`, `${time}`, `${bytesSent}`,
+`${bytesReceived}` and the color tags — are written unchanged. `${method}` and
+`${protocol}` come from the request line, which fasthttp rejects outright if it
+holds a control byte.
 
 :::caution
 Tags you supply through `Config.CustomTags` or `RegisterTag` are **not**

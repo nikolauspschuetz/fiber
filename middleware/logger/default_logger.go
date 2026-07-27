@@ -38,10 +38,12 @@ func defaultLoggerInstance(c fiber.Ctx, data *Data, cfg *Config) error {
 	// Default output when no custom Format or io.Writer is given
 	if cfg.Format == DefaultFormat {
 		// Format error if exist
-		// The request-derived values below (IP, method, path, and the chain
-		// error, which routinely embeds decoded request data) are scrubbed of
-		// control bytes for the same reason the template tags are: raw CR/LF
-		// lets a client forge additional access-log lines. See #4341.
+		// The request-derived values below (IP, path, and the chain error,
+		// which routinely embeds decoded request data) are scrubbed of control
+		// bytes for the same reason the template tags are: raw CR/LF lets a
+		// client forge additional access-log lines. See #4341. The method is
+		// not scrubbed — fasthttp rejects a request line whose method token
+		// holds one — which keeps this path consistent with ${method}.
 		formatErr := ""
 		if cfg.areColorsEnabled {
 			if data.ChainErr != nil {
@@ -54,7 +56,7 @@ func defaultLoggerInstance(c fiber.Ctx, data *Data, cfg *Config) error {
 				statusColor(c.Response().StatusCode(), &colors), c.Response().StatusCode(), colors.Reset,
 				data.Stop.Sub(data.Start),
 				sanitizeLogValue(c.IP()),
-				methodColor(c.Method(), &colors), sanitizeLogValue(c.Method()), colors.Reset,
+				methodColor(c.Method(), &colors), c.Method(), colors.Reset,
 				sanitizeLogValue(c.Path()),
 				formatErr,
 			)
@@ -96,7 +98,7 @@ func defaultLoggerInstance(c fiber.Ctx, data *Data, cfg *Config) error {
 			buf.WriteString(" | ")
 
 			// HTTP Method with 7 fixed width, left aligned
-			fixedWidth(sanitizeLogValue(c.Method()), 7, false)
+			fixedWidth(c.Method(), 7, false)
 			buf.WriteString(" | ")
 
 			// Path with dynamic padding for error message, left aligned

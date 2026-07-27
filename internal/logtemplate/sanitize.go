@@ -27,9 +27,16 @@ func WriteSanitizedString(output Buffer, s string) (int, error) {
 }
 
 // ScrubControls returns a copy of s with every byte IsControlByte matches
-// replaced by a space. idx is the index of the first such byte, so the
-// scan starts there and the clean prefix is copied untouched.
+// replaced by a space. idx is the index of the first such byte, so the scan
+// starts there and the clean prefix is copied untouched.
+//
+// A negative idx — what IndexControlByte returns for clean input — is clamped
+// to 0 rather than panicking, so ScrubControls(s, IndexControlByte(s)) is
+// safe even though the callers here take the clean fast path instead.
 func ScrubControls[S ~string | ~[]byte](s S, idx int) []byte {
+	if idx < 0 {
+		idx = 0
+	}
 	scrubbed := make([]byte, len(s))
 	copy(scrubbed, s)
 	for i := idx; i < len(scrubbed); i++ {

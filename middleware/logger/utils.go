@@ -140,10 +140,14 @@ func sanitizeLogValue(s string) string {
 	return string(logtemplate.ScrubControls(s, idx))
 }
 
-// writeSanitizedValue renders v with %v and writes the scrubbed result. The
-// rendering goes through a pooled buffer rather than fmt.Sprintf so a value
-// that is neither a string nor a []byte does not cost a throwaway heap string
-// on every logged request.
+// writeSanitizedValue renders v with %v and writes the scrubbed result.
+//
+// The rendering goes through a pooled scratch buffer because the bytes have to
+// be scrubbed before they reach output, and scrubbing in place afterwards is
+// not an option: Buffer is an interface, and an implementation whose Bytes()
+// returns a copy would silently skip the scrub. The pool keeps that
+// indirection allocation-free; it costs roughly 30ns over writing straight to
+// output, paid only by ${locals:} values that are neither string nor []byte.
 func writeSanitizedValue(output Buffer, v any) (int, error) {
 	b := bytebufferpool.Get()
 	defer bytebufferpool.Put(b)

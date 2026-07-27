@@ -97,7 +97,9 @@ func createTagMap(cfg *Config) map[string]LogFunc {
 			return output.WriteString(c.Protocol())
 		},
 		TagScheme: func(output Buffer, c fiber.Ctx, _ *Data, _ string) (int, error) {
-			return output.WriteString(c.Scheme())
+			// Scheme echoes X-Forwarded-Proto / X-Url-Scheme once the proxy is
+			// trusted, so it is request-derived like ${ips} and ${ua}.
+			return writeSanitizedString(output, c.Scheme())
 		},
 		TagPort: func(output Buffer, c fiber.Ctx, _ *Data, _ string) (int, error) {
 			return output.WriteString(c.Port())
@@ -130,7 +132,10 @@ func createTagMap(cfg *Config) map[string]LogFunc {
 			return appendInt(output, c.Response().Header.ContentLength())
 		},
 		TagRoute: func(output Buffer, c fiber.Ctx, _ *Data, _ string) (int, error) {
-			return output.WriteString(c.Route().Path)
+			// Normally the registered pattern, but Ctx.Route falls back to a
+			// synthetic route carrying the raw request path when no route
+			// matched, so this can be request-derived too.
+			return writeSanitizedString(output, c.Route().Path)
 		},
 		TagResBody: func(output Buffer, c fiber.Ctx, _ *Data, _ string) (int, error) {
 			return writeSanitized(output, c.Response().Body())
