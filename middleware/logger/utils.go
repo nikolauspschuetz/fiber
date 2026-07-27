@@ -1,12 +1,14 @@
 package logger
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/internal/logtemplate"
 	fiberlog "github.com/gofiber/fiber/v3/log"
 	"github.com/gofiber/utils/v2"
+	"github.com/valyala/bytebufferpool"
 )
 
 func methodColor(method string, colors *fiber.Colors) string {
@@ -122,4 +124,30 @@ func writeSanitizedColored(output Buffer, color, value, reset string) (int, erro
 	}
 	m, err = output.WriteString(reset)
 	return n + m, err
+}
+
+// sanitizeLogValue returns s with ASCII control bytes replaced by spaces
+// (tabs preserved). It is the string-returning counterpart of
+// writeSanitizedString, for the default-format writer, which composes its line
+// with fmt.Fprintf and fixed-width padding rather than by writing tags into
+// the buffer. Clean input — the overwhelmingly common case — is returned
+// unchanged with no allocation.
+func sanitizeLogValue(s string) string {
+	idx := logtemplate.IndexControlByte(s)
+	if idx == -1 {
+		return s
+	}
+	return string(logtemplate.ScrubControls(s, idx))
+}
+
+// writeSanitizedValue renders v with %v and writes the scrubbed result. The
+// rendering goes through a pooled buffer rather than fmt.Sprintf so a value
+// that is neither a string nor a []byte does not cost a throwaway heap string
+// on every logged request.
+func writeSanitizedValue(output Buffer, v any) (int, error) {
+	b := bytebufferpool.Get()
+	defer bytebufferpool.Put(b)
+
+	fmt.Fprintf(b, "%v", v)
+	return writeSanitized(output, b.B)
 }

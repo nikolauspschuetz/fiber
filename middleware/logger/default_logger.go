@@ -38,10 +38,14 @@ func defaultLoggerInstance(c fiber.Ctx, data *Data, cfg *Config) error {
 	// Default output when no custom Format or io.Writer is given
 	if cfg.Format == DefaultFormat {
 		// Format error if exist
+		// The request-derived values below (IP, method, path, and the chain
+		// error, which routinely embeds decoded request data) are scrubbed of
+		// control bytes for the same reason the template tags are: raw CR/LF
+		// lets a client forge additional access-log lines. See #4341.
 		formatErr := ""
 		if cfg.areColorsEnabled {
 			if data.ChainErr != nil {
-				formatErr = colors.Red + " | " + data.ChainErr.Error() + colors.Reset
+				formatErr = colors.Red + " | " + sanitizeLogValue(data.ChainErr.Error()) + colors.Reset
 			}
 			fmt.Fprintf(
 				buf,
@@ -49,14 +53,14 @@ func defaultLoggerInstance(c fiber.Ctx, data *Data, cfg *Config) error {
 				data.Timestamp,
 				statusColor(c.Response().StatusCode(), &colors), c.Response().StatusCode(), colors.Reset,
 				data.Stop.Sub(data.Start),
-				c.IP(),
-				methodColor(c.Method(), &colors), c.Method(), colors.Reset,
-				c.Path(),
+				sanitizeLogValue(c.IP()),
+				methodColor(c.Method(), &colors), sanitizeLogValue(c.Method()), colors.Reset,
+				sanitizeLogValue(c.Path()),
 				formatErr,
 			)
 		} else {
 			if data.ChainErr != nil {
-				formatErr = " | " + data.ChainErr.Error()
+				formatErr = " | " + sanitizeLogValue(data.ChainErr.Error())
 			}
 
 			// Helper function to append fixed-width string with padding
@@ -88,16 +92,16 @@ func defaultLoggerInstance(c fiber.Ctx, data *Data, cfg *Config) error {
 			buf.WriteString(" | ")
 
 			// Client IP with 15 fixed width, right aligned
-			fixedWidth(c.IP(), 15, true)
+			fixedWidth(sanitizeLogValue(c.IP()), 15, true)
 			buf.WriteString(" | ")
 
 			// HTTP Method with 7 fixed width, left aligned
-			fixedWidth(c.Method(), 7, false)
+			fixedWidth(sanitizeLogValue(c.Method()), 7, false)
 			buf.WriteString(" | ")
 
 			// Path with dynamic padding for error message, left aligned
 			errPadding, _ := strconv.Atoi(data.ErrPaddingStr) //nolint:errcheck // It is fine to ignore the error
-			fixedWidth(c.Path(), errPadding, false)
+			fixedWidth(sanitizeLogValue(c.Path()), errPadding, false)
 
 			// Error message
 			buf.WriteString(" ")

@@ -1819,3 +1819,41 @@ func Test_Logger_SanitizesPath(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "/admin  200", buf.String())
 }
+
+// Test_Logger_DefaultFormat_SanitizesControlBytes covers the default logger
+// configuration, which takes defaultLoggerInstance's hand-written fast path
+// instead of the tag map. Without scrubbing there, plain logger.New() — by far
+// the most common setup — still lets a request forge extra log lines (#4341).
+func Test_Logger_DefaultFormat_SanitizesControlBytes(t *testing.T) {
+	t.Parallel()
+
+	for _, colors := range []bool{false, true} {
+		t.Run(fmt.Sprintf("colors=%v", colors), func(t *testing.T) {
+			t.Parallel()
+
+			buf := bytebufferpool.Get()
+			defer bytebufferpool.Put(buf)
+
+			app := fiber.New(fiber.Config{UnescapePath: true})
+			cfg := Config{Stream: buf}
+			if colors {
+				cfg.ForceColors = true
+			} else {
+				cfg.DisableColors = true
+			}
+			app.Use(New(cfg))
+			app.Get("/*", func(_ fiber.Ctx) error {
+				return errors.New("boom\r\nFORGED-ERROR-LINE")
+			})
+
+			_, err := app.Test(httptest.NewRequest(fiber.MethodGet, "/admin%0d%0aFORGED-PATH-LINE", http.NoBody))
+			require.NoError(t, err)
+
+			out := buf.String()
+			require.NotContains(t, out, "\r")
+			require.Equal(t, 1, strings.Count(out, "\n"), "log entry must stay on one line: %q", out)
+			require.Contains(t, out, "FORGED-PATH-LINE")
+			require.Contains(t, out, "FORGED-ERROR-LINE")
+		})
+	}
+}

@@ -214,7 +214,7 @@ func createTagMap(cfg *Config) map[string]LogFunc {
 			default:
 				// %v can render arbitrary text (e.g. a struct holding request
 				// data), so it goes through the same scrubbing.
-				return writeSanitizedString(output, fmt.Sprintf("%v", v))
+				return writeSanitizedValue(output, v)
 			}
 		},
 		TagStatus: func(output Buffer, c fiber.Ctx, _ *Data, _ string) (int, error) {
