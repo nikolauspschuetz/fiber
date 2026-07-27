@@ -941,6 +941,9 @@ func Test_RoutePatternMatch_MatchesRouter(t *testing.T) {
 		// getMatch slices out of the untouched path, not the detection path.
 		"/:id<regex(^[a-z]+$)>", "/:id<regex(^[A-Z]+$)>", "/:id<regex(^[^a-z]+$)>",
 		"/user/:n<regex(^[A-Z][a-z]+$)>",
+		// Escaped specials: register strips the escapes before deriving the
+		// root/star flags, so the helper has to as well.
+		`/\*`, `/\:id`, `/a\-b`,
 	}
 	paths := []string{
 		"/", "/a", "/a/", "/a/b", "/a/b/", "/1", "/a/1", "/a/b/c",

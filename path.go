@@ -231,8 +231,11 @@ func RoutePatternMatch(path, pattern string, cfg ...Config) bool {
 	parser.parseRoute(patternStr, config.RegexHandler)
 	defer routerParserPool.Put(parser)
 
-	// '*' wildcard matches any path
-	if (patternStr == "/" && detectionPath == "/") || patternStr == "/*" {
+	// '*' wildcard matches any path. App.register derives the root/star flags
+	// from the escape-stripped pattern, so compare against that form: "/\*" is
+	// an escaped literal here but registers as a star route.
+	patternClean := RemoveEscapeChar(patternStr)
+	if (patternClean == "/" && detectionPath == "/") || patternClean == "/*" {
 		return true
 	}
 

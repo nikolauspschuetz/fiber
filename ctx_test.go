@@ -10487,6 +10487,10 @@ func Benchmark_Ctx_OverrideParam(b *testing.B) {
 // Test_Ctx_Cookie_DoesNotMutateArgument verifies that Cookie treats its
 // argument as read-only, so a caller can reuse the same *Cookie template
 // across requests without the normalization leaking back into it.
+//
+// Note the deliberate absence of Partitioned: fasthttp's SetPartitioned also
+// forces path=/ and secure, so a partitioned cookie would satisfy the emitted
+// header assertions below even if the normalization were removed entirely.
 func Test_Ctx_Cookie_DoesNotMutateArgument(t *testing.T) {
 	t.Parallel()
 	app := New()
@@ -10499,7 +10503,6 @@ func Test_Ctx_Cookie_DoesNotMutateArgument(t *testing.T) {
 		SessionOnly: true,
 		MaxAge:      60,
 		Expires:     time.Now().Add(time.Hour),
-		Partitioned: true,
 	}
 	before := *tmpl
 
@@ -10510,10 +10513,21 @@ func Test_Ctx_Cookie_DoesNotMutateArgument(t *testing.T) {
 	require.False(t, tmpl.Secure)
 	require.Equal(t, 60, tmpl.MaxAge)
 
-	// The emitted cookie still carries the normalized attributes.
+	// The emitted cookie still carries the normalized attributes. These are
+	// regression guards, not proof of the normalization: fasthttp defaults an
+	// empty path to "/" and forces Secure for SameSite=None on its own, so
+	// they would hold even without it. The require.Equal above is the
+	// assertion that actually pins this method's contract.
 	header := string(c.Response().Header.Peek(HeaderSetCookie))
 	require.Contains(t, header, "path=/")
 	require.Contains(t, header, "secure")
 	require.Contains(t, header, "SameSite=None")
 	require.NotContains(t, header, "max-age=")
+
+	// Partitioned is normalized on the copy too; assert on the struct rather
+	// than the header, since fasthttp sets Secure and Path for it anyway.
+	part := &Cookie{Name: "p", Value: "v", Path: "/scoped", Partitioned: true}
+	c.Cookie(part)
+	require.False(t, part.Secure, "Partitioned must not write Secure back to the caller")
+	require.Equal(t, "/scoped", part.Path)
 }
