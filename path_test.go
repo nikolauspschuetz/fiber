@@ -967,15 +967,21 @@ func Test_RoutePatternMatch_MatchesRouter(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			for _, pattern := range patterns {
-				for _, path := range paths {
-					app := New(cfg)
-					matched := false
-					app.Get(pattern, func(_ Ctx) error {
-						matched = true
-						return nil
-					})
+				// One app per pattern rather than per (pattern, path): the route
+				// set never changes across paths, and routing carries no state
+				// between requests, so rebuilding it for every path only
+				// multiplies the work the race detector has to instrument.
+				matched := false
+				app := New(cfg)
+				app.Get(pattern, func(_ Ctx) error {
+					matched = true
+					return nil
+				})
 
-					_, err := app.Test(httptest.NewRequest(MethodGet, path, http.NoBody))
+				for _, path := range paths {
+					matched = false
+
+					_, err := app.Test(httptest.NewRequest(MethodGet, path, http.NoBody), slowRoundTripTestConfig)
 					require.NoError(t, err)
 
 					require.Equal(t, matched, RoutePatternMatch(path, pattern, cfg),

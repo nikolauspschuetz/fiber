@@ -453,6 +453,15 @@ func Test_App_Errors(t *testing.T) {
 	}
 }
 
+// slowRoundTripTestConfig relaxes app.Test's 1s default timeout for requests
+// that are genuinely expensive: multi-megabyte bodies, or tight loops that
+// stand up thousands of apps in parallel. The race detector instruments every
+// one of those copies and goroutine handoffs, pushing the round trip past a
+// second and surfacing as a spurious "i/o timeout" rather than the behavior
+// under test. A generous limit costs nothing when the request completes
+// promptly, which is the only case these tests care about.
+var slowRoundTripTestConfig = TestConfig{Timeout: 30 * time.Second, FailOnTimeout: true}
+
 func Test_App_BodyLimit_Negative(t *testing.T) {
 	t.Parallel()
 
@@ -466,12 +475,12 @@ func Test_App_BodyLimit_Negative(t *testing.T) {
 
 		largeBody := bytes.Repeat([]byte{'a'}, DefaultBodyLimit+1)
 		req := httptest.NewRequest(MethodPost, "/", bytes.NewReader(largeBody))
-		_, err := app.Test(req)
+		_, err := app.Test(req, slowRoundTripTestConfig)
 		require.ErrorIs(t, err, fasthttp.ErrBodyTooLarge)
 
 		smallBody := bytes.Repeat([]byte{'a'}, DefaultBodyLimit-1)
 		req = httptest.NewRequest(MethodPost, "/", bytes.NewReader(smallBody))
-		resp, err := app.Test(req)
+		resp, err := app.Test(req, slowRoundTripTestConfig)
 		require.NoError(t, err)
 		require.Equal(t, StatusOK, resp.StatusCode)
 	}
@@ -488,12 +497,12 @@ func Test_App_BodyLimit_Zero(t *testing.T) {
 
 	largeBody := bytes.Repeat([]byte{'a'}, DefaultBodyLimit+1)
 	req := httptest.NewRequest(MethodPost, "/", bytes.NewReader(largeBody))
-	_, err := app.Test(req)
+	_, err := app.Test(req, slowRoundTripTestConfig)
 	require.ErrorIs(t, err, fasthttp.ErrBodyTooLarge)
 
 	smallBody := bytes.Repeat([]byte{'a'}, DefaultBodyLimit-1)
 	req = httptest.NewRequest(MethodPost, "/", bytes.NewReader(smallBody))
-	resp, err := app.Test(req)
+	resp, err := app.Test(req, slowRoundTripTestConfig)
 	require.NoError(t, err)
 	require.Equal(t, StatusOK, resp.StatusCode)
 }
@@ -511,14 +520,14 @@ func Test_App_BodyLimit_LargerThanDefault(t *testing.T) {
 	// Body larger than the default but within our custom limit should succeed
 	midBody := bytes.Repeat([]byte{'a'}, DefaultBodyLimit+512)
 	req := httptest.NewRequest(MethodPost, "/", bytes.NewReader(midBody))
-	resp, err := app.Test(req)
+	resp, err := app.Test(req, slowRoundTripTestConfig)
 	require.NoError(t, err)
 	require.Equal(t, StatusOK, resp.StatusCode)
 
 	// Body above the custom limit should fail
 	largeBody := bytes.Repeat([]byte{'a'}, limit+1)
 	req = httptest.NewRequest(MethodPost, "/", bytes.NewReader(largeBody))
-	_, err = app.Test(req)
+	_, err = app.Test(req, slowRoundTripTestConfig)
 	require.ErrorIs(t, err, fasthttp.ErrBodyTooLarge)
 }
 

@@ -24,6 +24,13 @@ import (
 	"golang.org/x/crypto/acme/autocert"
 )
 
+// serverReadyTimeout bounds how long a test waits for a listener goroutine to
+// reach Accept. InmemoryListener.Dial blocks until the server accepts, so this
+// is a deadlock guard rather than a poll budget: on a healthy server the wait
+// ends as soon as the first dial returns, and a generous limit keeps the race
+// detector's slowdown from failing a server that is merely slow to start.
+const serverReadyTimeout = 30 * time.Second
+
 // go test -run Test_Listen
 func Test_Listen(t *testing.T) {
 	app := New()
@@ -103,7 +110,7 @@ func Test_ShutdownWithContext_PostShutdownHookReceivesError(t *testing.T) {
 			return true
 		}
 		return false
-	}, time.Second, 20*time.Millisecond, "server failed to become ready")
+	}, serverReadyTimeout, 20*time.Millisecond, "server failed to become ready")
 
 	// Keep a request in flight so shutdown cannot drain before the 1ns deadline.
 	conn, err := ln.Dial()
@@ -151,7 +158,7 @@ func Test_GracefulShutdown_PostShutdownFiresOnce(t *testing.T) {
 			return true
 		}
 		return false
-	}, time.Second, 20*time.Millisecond, "server failed to become ready")
+	}, serverReadyTimeout, 20*time.Millisecond, "server failed to become ready")
 
 	gcancel() // trigger graceful shutdown
 
@@ -212,7 +219,7 @@ func testGracefulShutdown(t *testing.T, shutdownTimeout time.Duration) {
 			return true
 		}
 		return false
-	}, time.Second, 100*time.Millisecond, "Server failed to become ready")
+	}, serverReadyTimeout, 100*time.Millisecond, "Server failed to become ready")
 
 	if shutdownTimeout == time.Nanosecond {
 		// keep a request in flight so shutdown cannot drain to zero open

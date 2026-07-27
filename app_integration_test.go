@@ -41,6 +41,13 @@ func newIntegrationCustomCtx(app *fiber.App) fiber.CustomCtx {
 	return &integrationCustomCtx{DefaultCtx: fiber.NewDefaultCtx(app)}
 }
 
+// serverReadyTimeout bounds how long a test waits for a listener goroutine to
+// reach Accept. InmemoryListener.Dial blocks until the server accepts, so this
+// is a deadlock guard rather than a poll budget: on a healthy server the wait
+// ends as soon as the first dial returns, and a generous limit keeps the race
+// detector's slowdown from failing a server that is merely slow to start.
+const serverReadyTimeout = 30 * time.Second
+
 func performOversizedRequest(t *testing.T, app *fiber.App, configure func(req *fasthttp.Request)) *fasthttp.Response {
 	t.Helper()
 
@@ -67,7 +74,7 @@ func performOversizedRequest(t *testing.T, app *fiber.App, configure func(req *f
 			return false
 		}
 		return true
-	}, time.Second, 10*time.Millisecond)
+	}, serverReadyTimeout, 10*time.Millisecond, "server failed to become ready")
 
 	req := fasthttp.AcquireRequest()
 	resp := fasthttp.AcquireResponse()
