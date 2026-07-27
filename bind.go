@@ -395,13 +395,10 @@ func (b *Bind) MsgPack(out any) error {
 // If none of the content types above are matched, it'll take a look custom binders by checking the MIMETypes() method of custom binder.
 // If there is no custom binder for mime type of body, it will return a ErrUnprocessableEntity error.
 func (b *Bind) Body(out any) error {
-	// Get content-type. The case fold has to go into scratch space: the header
-	// bytes belong to the request, and lowercasing them in place would corrupt
-	// case-sensitive parameters — most importantly a multipart boundary, which
-	// no longer matches the body once folded.
-	var ctypeBuf [128]byte
-	ctype := utils.UnsafeString(appendLowerASCII(ctypeBuf[:0], b.ctx.RequestCtx().Request.Header.ContentType()))
-	ctype = binder.FilterFlags(utils.ParseVendorSpecificContentType(ctype))
+	// Get content-type, folding only the media type so the case-sensitive
+	// multipart boundary survives (see normalizeContentTypeMediaType).
+	raw := utils.UnsafeString(normalizeContentTypeMediaType(&b.ctx.RequestCtx().Request.Header))
+	ctype := binder.FilterFlags(utils.ParseVendorSpecificContentType(raw))
 
 	// Check custom binders
 	binders := b.ctx.App().customBinders

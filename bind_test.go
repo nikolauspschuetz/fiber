@@ -3117,12 +3117,66 @@ func BenchmarkBind_All_CustomPrecedence(b *testing.B) {
 	}
 }
 
-// Test_Bind_Body_DoesNotMutateContentType verifies that inspecting the
-// Content-Type to pick a decoder leaves the request header untouched. The case
-// fold used to happen in place, which lowercased the (case-sensitive)
-// multipart boundary — so anything that replayed the request afterwards, such
-// as a proxy, could no longer parse the body it forwarded.
-func Test_Bind_Body_DoesNotMutateContentType(t *testing.T) {
+// Test_Bind_Body_ContentTypeNormalization pins both halves of the
+// Content-Type contract. The media type must be folded in place, because
+// fasthttp and binder.FormBinding locate the form body with case-sensitive
+// prefix checks — so a legal "Multipart/Form-Data" has to still bind. The
+// parameters must NOT be folded, because a multipart boundary is
+// case-sensitive and anything replaying the request (a proxy, an adaptor)
+// would no longer parse the body it forwarded.
+func Test_Bind_Body_ContentTypeNormalization(t *testing.T) {
+	t.Parallel()
+
+	t.Run("mixed-case media type still binds", func(t *testing.T) {
+		t.Parallel()
+
+		var body bytes.Buffer
+		w := multipart.NewWriter(&body)
+		require.NoError(t, w.SetBoundary("lowercaseboundary12345"))
+		require.NoError(t, w.WriteField("name", "john"))
+		require.NoError(t, w.Close())
+
+		app := New()
+		app.Post("/", func(c Ctx) error {
+			var out struct {
+				Name string `form:"name"`
+			}
+			require.NoError(t, c.Bind().Body(&out))
+			require.Equal(t, "john", out.Name)
+			return nil
+		})
+
+		req := httptest.NewRequest(MethodPost, "/", bytes.NewReader(body.Bytes()))
+		req.Header.Set(HeaderContentType, "Multipart/Form-Data; boundary=lowercaseboundary12345")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		require.Equal(t, StatusOK, resp.StatusCode)
+	})
+
+	t.Run("mixed-case urlencoded still binds", func(t *testing.T) {
+		t.Parallel()
+
+		app := New()
+		app.Post("/", func(c Ctx) error {
+			var out struct {
+				Name string `form:"name"`
+			}
+			require.NoError(t, c.Bind().Body(&out))
+			require.Equal(t, "john", out.Name)
+			return nil
+		})
+
+		req := httptest.NewRequest(MethodPost, "/", strings.NewReader("name=john"))
+		req.Header.Set(HeaderContentType, "APPLICATION/X-WWW-FORM-URLENCODED")
+		resp, err := app.Test(req)
+		require.NoError(t, err)
+		require.Equal(t, StatusOK, resp.StatusCode)
+	})
+
+	t.Run("boundary case is preserved", testBindBodyPreservesBoundary)
+}
+
+func testBindBodyPreservesBoundary(t *testing.T) {
 	t.Parallel()
 
 	var body bytes.Buffer

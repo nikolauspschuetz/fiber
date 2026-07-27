@@ -191,12 +191,10 @@ func (r *Redirect) With(key, value string, level ...uint8) *Redirect {
 // This method can send form, multipart form, query data to redirected route.
 // You can get them by using: Redirect().OldInputs(), Redirect().OldInput()
 func (r *Redirect) WithInput() *Redirect {
-	// Get content-type. Fold into scratch space rather than in place: the
-	// header bytes belong to the request, and a multipart boundary is
-	// case-sensitive (see Bind.Body).
-	var ctypeBuf [128]byte
-	ctype := utils.UnsafeString(appendLowerASCII(ctypeBuf[:0], r.c.RequestCtx().Request.Header.ContentType()))
-	ctype = binder.FilterFlags(utils.ParseVendorSpecificContentType(ctype))
+	// Get content-type, folding only the media type so the case-sensitive
+	// multipart boundary survives (see normalizeContentTypeMediaType).
+	raw := utils.UnsafeString(normalizeContentTypeMediaType(&r.c.RequestCtx().Request.Header))
+	ctype := binder.FilterFlags(utils.ParseVendorSpecificContentType(raw))
 
 	oldInput := acquireOldInput()
 	defer releaseOldInput(oldInput)

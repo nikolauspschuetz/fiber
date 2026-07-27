@@ -282,6 +282,30 @@ func appendLowerASCII(dst, src []byte) []byte {
 	return dst
 }
 
+// normalizeContentTypeMediaType lowercases the media-type portion of a
+// request's Content-Type in place and returns the full header value.
+//
+// The fold has to land on the request's own bytes rather than on a copy:
+// fasthttp locates the multipart boundary and the urlencoded form body with
+// case-sensitive prefix checks (Request.MultipartFormBoundary,
+// Request.PostArgs), as does binder.FormBinding, so a perfectly legal
+// "Multipart/Form-Data" would otherwise parse as an empty form. Media types
+// are case-insensitive (RFC 9110 Section 8.3.1), so folding them changes no
+// meaning.
+//
+// Parameters are deliberately left untouched: a multipart boundary IS
+// case-sensitive, and folding it detaches the header from the body it
+// describes.
+func normalizeContentTypeMediaType(h *fasthttp.RequestHeader) []byte {
+	ct := h.ContentType()
+	end := bytes.IndexByte(ct, ';')
+	if end == -1 {
+		end = len(ct)
+	}
+	utilsbytes.UnsafeToLower(ct[:end])
+	return ct
+}
+
 // defaultString returns the value or a default value if it is set
 func defaultString(value string, defaultValue []string) string {
 	if value == "" && len(defaultValue) > 0 {

@@ -165,11 +165,15 @@ func (r *DefaultReq) Body() []byte {
 
 	// Get Content-Encoding header. Multiple field lines form one combined
 	// list (RFC 9110 Section 5.2), so join them before splitting.
-	// The single-line result aliases the header storage, so the case fold goes
-	// into scratch space instead of rewriting the request's own bytes.
+	// The single-line result aliases the header storage, so fold into a new
+	// string rather than rewriting the request's own bytes. utilsstrings.ToLower
+	// returns its input unchanged when there is no uppercase byte, which every
+	// real value ("gzip", "br", "deflate", "identity") satisfies — so the common
+	// path stays allocation-free. A stack scratch buffer is not an option here:
+	// the substrings flow into encodingOrder and on into tryDecodeBodyInOrder,
+	// which forces the array to the heap on every call.
 	encodedBytes, _ := peekJoinedRequestHeader(&request.Header, HeaderContentEncoding)
-	var encodingBuf [64]byte
-	headerEncoding = utils.UnsafeString(appendLowerASCII(encodingBuf[:0], encodedBytes))
+	headerEncoding = utilsstrings.ToLower(utils.UnsafeString(encodedBytes))
 
 	// Split and get the encodings list, in order to attend the
 	// rule defined at: https://www.rfc-editor.org/rfc/rfc9110#section-8.4-5
