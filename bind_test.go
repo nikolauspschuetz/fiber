@@ -3127,31 +3127,44 @@ func BenchmarkBind_All_CustomPrecedence(b *testing.B) {
 func Test_Bind_Body_ContentTypeNormalization(t *testing.T) {
 	t.Parallel()
 
-	t.Run("mixed-case media type still binds", func(t *testing.T) {
-		t.Parallel()
+	// Both the media type and the parameter names are case-insensitive
+	// (RFC 9110 Sections 8.3.1 and 5.6.6); only the boundary value is not.
+	for _, ctype := range []string{
+		"multipart/form-data; boundary=AbCdEfMixed12345",
+		"Multipart/Form-Data; boundary=AbCdEfMixed12345",
+		"multipart/form-data; BOUNDARY=AbCdEfMixed12345",
+		"multipart/form-data; Boundary=AbCdEfMixed12345",
+		"Multipart/Form-Data; BOUNDARY=AbCdEfMixed12345",
+		`multipart/form-data; CHARSET="a;b"; BOUNDARY=AbCdEfMixed12345`,
+	} {
+		t.Run("case-insensitive "+ctype, func(t *testing.T) {
+			t.Parallel()
 
-		var body bytes.Buffer
-		w := multipart.NewWriter(&body)
-		require.NoError(t, w.SetBoundary("lowercaseboundary12345"))
-		require.NoError(t, w.WriteField("name", "john"))
-		require.NoError(t, w.Close())
+			var body bytes.Buffer
+			w := multipart.NewWriter(&body)
+			require.NoError(t, w.SetBoundary("AbCdEfMixed12345"))
+			require.NoError(t, w.WriteField("name", "john"))
+			require.NoError(t, w.Close())
 
-		app := New()
-		app.Post("/", func(c Ctx) error {
-			var out struct {
-				Name string `form:"name"`
-			}
-			require.NoError(t, c.Bind().Body(&out))
-			require.Equal(t, "john", out.Name)
-			return nil
+			app := New()
+			app.Post("/", func(c Ctx) error {
+				var out struct {
+					Name string `form:"name"`
+				}
+				require.NoError(t, c.Bind().Body(&out))
+				require.Equal(t, "john", out.Name)
+				// The boundary value keeps its case so the request can be replayed.
+				require.Contains(t, c.Get(HeaderContentType), "AbCdEfMixed12345")
+				return nil
+			})
+
+			req := httptest.NewRequest(MethodPost, "/", bytes.NewReader(body.Bytes()))
+			req.Header.Set(HeaderContentType, ctype)
+			resp, err := app.Test(req)
+			require.NoError(t, err)
+			require.Equal(t, StatusOK, resp.StatusCode)
 		})
-
-		req := httptest.NewRequest(MethodPost, "/", bytes.NewReader(body.Bytes()))
-		req.Header.Set(HeaderContentType, "Multipart/Form-Data; boundary=lowercaseboundary12345")
-		resp, err := app.Test(req)
-		require.NoError(t, err)
-		require.Equal(t, StatusOK, resp.StatusCode)
-	})
+	}
 
 	t.Run("mixed-case urlencoded still binds", func(t *testing.T) {
 		t.Parallel()
