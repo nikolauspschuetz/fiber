@@ -1244,3 +1244,39 @@ func Test_CookieJar_EvictsLeastRecentlyWritten(t *testing.T) {
 	require.LessOrEqual(t, len(jar.hostCookies["example.com"]), maxCookiesPerHost)
 	require.Equal(t, "session=SECRET", cookieHeaderFor(jar, "http://example.com/account"))
 }
+
+// Test_CookieJar_BoundsCookiesPerRequest checks the ceiling on what one
+// request carries. The per-key cap alone does not bound it: a host-only cookie
+// plus one Domain= cookie per parent label live under different keys and all
+// domain-match the same request, so a host deep in a DNS tree could otherwise
+// multiply its allowance by its label count.
+func Test_CookieJar_BoundsCookiesPerRequest(t *testing.T) {
+	t.Parallel()
+
+	jar := AcquireCookieJar()
+	defer ReleaseCookieJar(jar)
+
+	const host = "a.b.c.d.example.com"
+	for _, domain := range []string{"", "b.c.d.example.com", "c.d.example.com", "d.example.com", "example.com"} {
+		for i := range maxCookiesPerHost * 2 {
+			resp := fasthttp.AcquireResponse()
+			attr := fmt.Sprintf("c%d_%d=v; Path=/", len(domain), i)
+			if domain != "" {
+				attr += "; Domain=" + domain
+			}
+			resp.Header.Add("Set-Cookie", attr)
+			jar.parseCookiesFromResp([]byte(host), []byte("/"), resp)
+			fasthttp.ReleaseResponse(resp)
+		}
+	}
+
+	uri := fasthttp.AcquireURI()
+	defer fasthttp.ReleaseURI(uri)
+	require.NoError(t, uri.Parse(nil, []byte("http://"+host+"/")))
+
+	got := jar.Get(uri)
+	require.LessOrEqual(t, len(got), maxCookiesPerRequest)
+	for _, c := range got {
+		fasthttp.ReleaseCookie(c)
+	}
+}

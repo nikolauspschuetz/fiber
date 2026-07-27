@@ -29,6 +29,16 @@ const (
 	// use.
 	maxCookiesPerHost = 64
 
+	// maxCookiesPerRequest bounds how many cookies one request may carry. The
+	// per-key cap alone does not bound this: a host-only cookie and one
+	// Domain= cookie per parent label are stored under different keys and all
+	// domain-match the same request, so a host deep in a DNS tree can multiply
+	// its allowance by its label count and inflate the Cookie header it makes
+	// the client send. RFC 6265 Section 5.3 asks for at least 50 cookies per
+	// domain; this sits above that floor, and the most specific cookies are
+	// kept because the list is already sorted longest-path-first.
+	maxCookiesPerRequest = 64
+
 	// defaultCookiePathStr is the path assumed for a cookie that carries no
 	// usable Path attribute and for a request with no path
 	// (RFC 6265 Section 5.1.4).
@@ -232,6 +242,13 @@ func (cj *CookieJar) cookiesForRequest(host string, path []byte, secure bool) []
 			}
 			return cmp.Compare(a.seq, b.seq)
 		})
+	}
+
+	if len(matched) > maxCookiesPerRequest {
+		for _, m := range matched[maxCookiesPerRequest:] {
+			fasthttp.ReleaseCookie(m.cookie)
+		}
+		matched = matched[:maxCookiesPerRequest]
 	}
 
 	out := make([]*fasthttp.Cookie, len(matched))
