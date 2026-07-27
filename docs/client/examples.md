@@ -237,8 +237,14 @@ The jar follows RFC 6265 for storage and retrieval:
 - Cookies are identified by the triple (name, domain, path), so the same name
   can be stored at several paths at once. When more than one applies to a
   request, the one with the longest path wins.
-- Storage is bounded: at most 1024 hosts, and at most 64 cookies per host. When
-  a host is full the jar drops expired entries first, then the oldest.
+- Storage is bounded: at most 1024 storage keys, and at most 64 cookies per
+  key. A host-only cookie and a `Domain=` cookie are stored under different
+  keys, so a single host can occupy more than one. When a key is full the jar
+  drops expired entries first, then the least recently written — a session
+  cookie the server re-sends on each response is not evicted by a flood of
+  one-off cookies.
+- Cookies are attached once per request, before any redirect is followed, so a
+  redirect chain carries the cookies selected for the original URL.
 
 ### Request
 
