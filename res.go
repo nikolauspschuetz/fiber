@@ -307,15 +307,11 @@ func (r *DefaultRes) RequestCtx() *fasthttp.RequestCtx {
 
 // Cookie sets a cookie by passing a cookie struct.
 //
-// The argument is treated as read-only: the normalization applied below
-// (default Path, SessionOnly, the Secure implied by SameSite=None and
-// Partitioned) is done on a local copy, so a caller may reuse the same
-// *Cookie template across requests.
+// The argument is treated as read-only: the normalization this method applies
+// (default Path, SessionOnly, and the Secure implied by SameSite=None or
+// Partitioned) happens on a local copy, so a caller may reuse the same *Cookie
+// template across requests.
 func (r *DefaultRes) Cookie(cookie *Cookie) {
-	if cookie == nil {
-		return
-	}
-
 	c := *cookie
 
 	if c.Path == "" {
